@@ -1,23 +1,32 @@
-smallData <- F
+smallData <- T
 approxProbit <- F
-logitNormal <- T
+logitNormal <- !approxProbit
+# TODO: use x-validation to find the best way to de-discretize data
+#       use 'mice' package to do iterative imputation of missing data
+#       use genre tags to allow for subsetting of recommendations
+#       make into RShiny app
+#       incorporate model of missingness -- inv. propto rating? use ML approach to adjust ratings for missingness
+#       compute expected value on the 1-5 movie rating scale, not the hidden liability scale
 
 sigmoid <- function(x) {1/(1+exp(-x))}; logit <- function(p) {log(p/(1-p))}
 
 if(smallData){
-  movies <- read.csv("ml-latest-small/movies.csv")
-  ratings <- read.csv(file = "ml-latest-small/ratings.csv")[,-4]
+  movies <- read.csv("data/ml-latest-small/movies.csv")
+  ratings <- read.csv(file = "data/ml-latest-small/ratings.csv")[,-4]
 } else {
-  ratings <- readLines("ml-10M100K/ratings.dat")
+  ratings <- readLines("data/ml-10M100K/ratings.dat")
   ratings <- as.data.frame(t(sapply(1:length(ratings), function(x) 
     as.numeric(strsplit(ratings[x], "::")[[1]])))[,-4], col.names = c("userId","movieId","rating"))
   colnames(ratings) <- c("userId","movieId","rating")
-  movies <- readLines("ml-10M100K/movies.dat")
+  movies <- readLines("data/ml-10M100K/movies.dat")
   movies <- as.data.frame(t(sapply(1:length(movies), function(x) strsplit(movies[x], split = "::")[[1]])))
   colnames(movies) <- c("movieId","title","genres")
 }
 
 imdb <- read.csv(file = "IDMB_top250.csv")
+
+#loo validation
+sapply(1:length(unique(ratings$userId)), function(x) sample(which(ratings$userId == x)))
 
 #convert ratings to approx. probit
 if(approxProbit){
@@ -28,11 +37,15 @@ if(approxProbit){
 if(logitNormal){
   ratings$rating <-logit(replace(ratings$rating, list = which(ratings$rating == 5), 4.875)/5)
 }
+
 #find subset of top 100 most commonly rated movies
-ntop <- 300
+ntop <- 500
 top <- as.numeric(attr(sort(table(ratings$movieId), decreasing = T)[1:ntop], which = "dimnames")[[1]])
 topMovs <- movies$title[match(top, movies$movieId)]
 ratings <- ratings[sapply(1:length(ratings$movieId), function(x) any(ratings$movieId[x] == top)),]
+
+
+
 meanRatings <- sapply(1:ntop, function(x) mean(ratings[ratings$movieId == top[x],3]))
 users <- unique(ratings$userId)
 ratmoves <- sapply(1:length(users), function(x) ratings[ratings$userId == users[x],2])
