@@ -335,7 +335,7 @@ for(i in 1:1){ #hacky way of loading everything
     proteinsShared <- proteins[numPatientsPerProtein > 5]
     library(RColorBrewer)
     cols <- brewer.pal(6, "Dark2")
-    png(filename = paste0("allPatients.png"), width = 1500, height = 2000)
+    png(filename = paste0("allPatients.png"), width = 1000, height = 750)
     par(mfrow = c(2,3))
     for(i in 1:length(patients)){
       print(i)
