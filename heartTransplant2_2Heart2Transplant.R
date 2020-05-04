@@ -2,12 +2,15 @@ sampleIterations <- 25000; warmupIterations <- 25000; nChains <- 1
 for(i in 1:1){ #hacky way of loading everything
   
   library(rethinking)
+  thinDataDownForExploration <- T; min_n_pos <- 30
   keratinIndex <- 1
   keratin <- c("removeCorrectly", "removeIncorrectly")[keratinIndex]
-  dataSizeIndex <- 2
+  dataSizeIndex <- 1
   dataSize <- c("full", "default", "sparse", "defaultfixed")[dataSizeIndex]
   addNewPatients <- T
-  EDA <- T
+  EDA1 <- F
+  EDA2 <- T
+  exploreXFOLDchange <- F
   removeP9 <- F
   if(removeP9){
     dataSize <- paste0(dataSize, "_removeP9")
@@ -28,12 +31,14 @@ for(i in 1:1){ #hacky way of loading everything
   
   ######################################################################
   # loading in the new data
-  d_new <- read.csv("newData.csv", header = T)
+  d_new_old <- read.csv("newData.csv", header = T)
+  d_new <- read.csv("New-Data-Combined-KateFebruaryCorrections.csv", header = T)
+  d_new <- read.csv("newData-H-2020Feb29.csv", header = T)
   n_timepoints <- 19
   p_new <- data.frame(matrix(NA, nrow = n_timepoints*nrow(d_new), ncol = length(columnNames))); colnames(p_new) <- columnNames
   p_new$spectral_count <- c(sapply(7:25, function(x) d_new[,x]))
   p_new$patient <- c(sapply(7:25, function(x) rep(substr(colnames(d_new)[x],1,2), length(d_new[,x]))))
-  p_new$protein <- rep(trimws(d_new$Identified.Proteins..1109.), n_timepoints)
+  p_new$protein <- rep(trimws(d_new$Identified.Proteins), n_timepoints)
   p_new$timepoint <- c(sapply(7:25, function(x) rep(as.numeric(substr(colnames(d_new)[x],5,5))+1, length(d_new[,x]))))
   timepoint_dates <- read.csv("timepoint_dates.csv", header = T, stringsAsFactors = F)
   p_new$timepoint_date <- c(sapply(7:25, function(x) rep((timepoint_dates$Timepoint_Date[
@@ -46,7 +51,6 @@ for(i in 1:1){ #hacky way of loading everything
       as.character(as.numeric(substr(colnames(d_new)[x],5,5)) + 1) == timepoint_dates$TimePoint
       ]), length(d_new[,x]))))
   p_new$date_of_transplant <- as.Date(p_new$date_of_transplant, format = "%m/%d/%y")
-  
   
     
   ######################################################################
@@ -264,24 +268,93 @@ for(i in 1:1){ #hacky way of loading everything
     d <- d.orig <- rbind(d, p_new)
   }
   
+  #force overlap between old and new proteins
+  library(stringr)
+  d$protein <- as.character(d$protein)
+  d$protein <- tolower(d$protein)
+  d$protein <- str_replace(d$protein, pattern = " \\[homo sapiens\\]", replacement = "")
+  d$protein <- str_replace(d$protein, pattern = " precursor", replacement = "")
+  d$protein <- str_replace(d$protein, pattern = " preproprotein", replacement = "")
+  d$protein <- sapply(1:length(d$protein), function(x) strsplit(d$protein[x], split = " os=")[[1]][1])
+  # d$protein <- sapply(1:length(d$protein), function(x) strsplit(d$protein[x], split = " isoform")[[1]][1])
+  d[as.numeric(strsplit("574 1183 1577 1954 2082 3151 3219 3815 3854 3942 4380 5448 7120 9043", split = " ")[[1]]),]
+  d <- d[!is.na(d$protein),]
+  d <- d[-grep(pattern = "contaminant", x = d$protein),]
+  d$protein <- trimws(d$protein, which = "both")
+  
+  #filter out keratin and "null" protein
+  if(keratin == "removeCorrectly"){
+    d <- d[!(grepl(pattern = "keratin", as.character(d$protein)) | grepl(pattern = "Keratin", as.character(d$protein)) | as.character(d$protein) == ""),]
+  } else if (keratin == "removeIncorrectly"){
+    d <- d[!(grepl(pattern = "keratin", as.character(d$protein)) | as.character(d$protein) == ""),]
+  }
+  d <- d[!(grepl(pattern = "contaminant", as.character(d$protein)) | grepl(pattern = "reversed", as.character(d$protein)) | grepl(pattern = "immunoglobulin", as.character(d$protein))),]
+  
+  
+  all_prots <- unique(d$protein)
+  old_proteins <- unique(d$protein[!is.na(d$date_of_rejection)])
+  new_proteins <- unique(d$protein[is.na(d$date_of_rejection)])
+  uniq_old <- sort(setdiff(old_proteins, new_proteins))
+  uniq_new <- sort(setdiff(new_proteins, old_proteins))
+  overlap <- sort(intersect(new_proteins, old_proteins))
+  
+  write.csv("unique_proteins_newPatients.csv", x = uniq_new)
+  write.csv("unique_proteins_oldPatients.csv", x = uniq_old)
+  write.csv("overlapping_proteins.csv", x = overlap)
+  
+  
+
+  
   #check overlap between old and new proteins
-  old_proteins <- unique(rbind(p1, p3, p5, p6, p7, p9)$protein)
-  new_proteins <- unique(p_new$protein)
-  length(old_proteins) + length(new_proteins)
-  length(unique(c(old_proteins, new_proteins)))
+  
+  # old_proteins <- as.character(unique(rbind(p1, p3, p5, p6, p7, p9)$protein))
+  # new_proteins <- unique(p_new$protein)
+  # new_proteins <- new_proteins[-grep(pattern = "CONTAMINANT", x = new_proteins)]
+  # length(old_proteins) + length(new_proteins)
+  # length(unique(c(old_proteins, new_proteins)))
+  # new_proteins_new_names <- trimws(read.csv("newData_2.csv", header = T)$Identified.Proteins, which = "both")
+  # 
+  # length(old_proteins) + length(new_proteins_new_names)
+  # length(unique(c(old_proteins, new_proteins_new_names)))
+  # 
+  # length(new_proteins) + length(new_proteins_new_names)
+  # length(unique(c(new_proteins, new_proteins_new_names)))
+  # 
+  # head(sort(old_proteins))
+  # head(sort(new_proteins_new_names))
+  # head(sort(new_proteins))
+  # 
+  # old_proteins[grep(x = old_proteins, pattern = "60 kDa heat shock protein")]
+  # new_proteins[grep(x = new_proteins, pattern = "60 kDa heat shock protein")]
+  # 
+  # old_proteins[grep(x = old_proteins, pattern = "prohibitin")]
+  # new_proteins[grep(x = new_proteins, pattern = "proteasome")]
+  # 
+  # 
+  # new_proteins_new_names[grep(x = new_proteins_new_names, pattern = "60 kDa heat shock protein")]
+  # 
   
   if(dataSize == "full" || dataSize == "full_removeP9"){
     #populate the data with zero spectral counts where appropriate
     patients <- as.character(unique(d$patient))
     proteins <- as.character(unique(d$protein))
     
+    unequalRedundancies <- d[1,]
+    
     for(i in 1:length(patients)){
       print(paste0("patient ",i))
-      for(j in 1:(if(any(i==c(1,7,13))){2}else{3})){ #timepoints
+      n_tps <- length(unique(d[d$patient == patients[i],]$timepoint))
+      for(j in 1:n_tps){ #timepoints
         patient <- patients[i]
         timepoint <- j
         subData <- d[d$patient == patient & d$timepoint == timepoint,]
         proteinsHere <- subData$protein
+        
+        protCounts <- (table(proteinsHere))
+        repeatProteins <- attr(protCounts, which = "dimnames")$proteinsHere[which(as.integer(protCounts) > 1)]
+        uneqRepProt <- repeatProteins[(sapply(1:length(repeatProteins), function(prot) (length(unique(subData[subData$protein == repeatProteins[prot],]$spectral_count)))) > 1)]
+        unequalRedundancies <- rbind(unequalRedundancies, do.call(rbind, lapply(uneqRepProt, function(prot) subData[subData$protein == prot,])))
+        
         if(j == 1){print(paste0("num proteins in this patient = ", length(proteinsHere)))}
         proteinsNotHere <- setdiff(proteins, proteinsHere)
         numProteinsNotHere <- length(proteinsNotHere)
@@ -299,6 +372,7 @@ for(i in 1:1){ #hacky way of loading everything
         d <- rbind(d, zeroesToAdd)
       }
     }
+    write.csv(file = "unequalSpectralCounts_sameProteinPatientTimepoint.csv", x = unequalRedundancies[-1,], row.names = F)
   }
   
   if(dataSize == "defaultfixed"){
@@ -307,7 +381,7 @@ for(i in 1:1){ #hacky way of loading everything
     
     for(i in 1:length(patients)){
       print(paste0("patient ",i))
-      for(j in 1:(if(i==1){2}else{3})){ #timepoints
+      for(j in 1:(if(i==1 | i == 8){2}else{3})){ #timepoints
         patient <- patients[i]
         timepoint <- j
         subData <- d[d$patient == patient & d$timepoint == timepoint,]
@@ -331,14 +405,7 @@ for(i in 1:1){ #hacky way of loading everything
     }
   }
   
-  #filter out keratin and "null" protein
-  if(keratin == "removeCorrectly"){
-    d <- d[!(grepl(pattern = "keratin", as.character(d$protein)) | grepl(pattern = "Keratin", as.character(d$protein)) | as.character(d$protein) == ""),]
-  } else if (keratin == "removeIncorrectly"){
-    d <- d[!(grepl(pattern = "keratin", as.character(d$protein)) | as.character(d$protein) == ""),]
-  }
-  d <- d[!(grepl(pattern = "CONTAMINANT", as.character(d$protein)) | grepl(pattern = "Reversed", as.character(d$protein)) | grepl(pattern = "Immunoglobulin", as.character(d$protein))),]
-  
+
   
   if(dataSize == "sparse"){
     proteins <- as.character(unique(d$protein))
@@ -361,21 +428,24 @@ for(i in 1:1){ #hacky way of loading everything
   d$transplantStdDaysRelativeToRejection <- d$daysRelativeToRejection / d$daysBetwTrans_Rej
   d$phase <- 1; d$phase <- d$phase + (d$daysRelativeToTransplant > 0) + (d$daysRelativeToRejection > 0); 
   table(d$phase)
+  d$afterRejection[is.na(d$afterRejection)] <- 0
   # d$pivot <- NA
   
   
   #coerce the protein id
+  d$protein <- as.factor(d$protein)
   d$protein_id <- coerce_index(d$protein)
+  d$patient <- as.factor(d$patient)
   d$patient_id <- coerce_index(d$patient)
   
   #EDA
-  if(EDA == T){
+  if(EDA2 == T){
     library(RColorBrewer)
     
     max(d$spectral_count)
     hist(d$daysRelativeToTransplant)
     plot(c(1,1), xlim = c(-800,3000), ylim = c(3,12), xlab = "days relative to transplant", ylab = "mean nonzero spectral count / timepoint", type = "n")
-    par(xpd=TRUE); points(0, 12.55, pch = 25, bg = 2, col = 2); points(c(-18,18), c(12.62,12.62), pch = 16, col = 2, cex = 0.85); par(xpd=F)
+    par(xpd=TRUE); points(0, 12.55, pch = 25, bg = 2, col = 2); points(c(-14,14), c(12.62,12.62), pch = 16, col = 2, cex = 0.85); par(xpd=F)
     abline(v = 0, col = 2, lty = 2)
     cols <- brewer.pal(6, "Dark2")
     cols <- rep("red", 6)
@@ -412,9 +482,11 @@ for(i in 1:1){ #hacky way of loading everything
     }
     legend("bottomright", legend = c("rejector", "non-rejector / \"control\""), col = c(2,1), lty = 1)
     legend("bottomleft", legend = c(100, 200, 400, 800), col = 2, pch = 16, pt.cex = c(100, 200, 400, 800) / 600, title = "# proteins / tp")
-    text("l", col = 2, x = 1800, y = 12.1, cex = 1.3); text("represent rejection dates", col = 1, x = 2450, y = 12.1)
+    text("l", col = 2, x = 1985, y = 12.1, cex = 1.3); text("represent rejection dates", col = 1, x = 2450, y = 12.1)
     title("Vertical Lines Represent Rejection Dates, Non-Red Colors Index Rejecting Patients,\n Numbers Represent Mean # of Unique Proteins Across All Available Timepoints")
     }
+    
+    if(EDA1 == T){
     
     numPatientsPerProtein <- sapply(1:length(proteins), function(x) length(unique(d[d$protein == proteins[x] & d$spectral_count != 0,]$patient)))
     proteinsShared <- proteins[numPatientsPerProtein > 5]
@@ -450,7 +522,7 @@ for(i in 1:1){ #hacky way of loading everything
       # dev.off()
     }
     dev.off()
-    
+    }
     #look at protein specific graphs
     # for(i in 1:length(proteinsShared)){
     #   print(i)
@@ -471,5 +543,276 @@ for(i in 1:1){ #hacky way of loading everything
     #   }
     #   dev.off()
     # }
+  #explore x-fold change for Kate
+  if(exploreXFOLDchange){
+    unique(d$patient)
+    
+    d$protein <- as.character(d$protein)
+    d$patient <- as.character(d$patient)
+    str(d)
+    old <- d[sapply(1:length(d$patient), function(x) any(d$patient[x] == c("P1", "P3", "P5", "P6", "P7", "P9"))),]
+    new <- d[sapply(1:length(d$patient), function(x) any(d$patient[x] == c("X1", "X2", "X3", "X4", "X5", "X6", "X7"))),]
+    
+    str(new)
+    prots <- unique(new$protein)
+    pats <- unique(new$patient)
+    targ_prots <- prots[sapply(1:length(prots), function(prot) length(unique(new[new$protein == prots[prot] & new$spectral_count != 0,]$patient)) >= 3)]
+    targ_prot <- 6
+    xfold_2_1 <- t(sapply(1:length(targ_prots), function(targ_prot)
+      sapply(1:length(pats), function(pat) new[new$protein == targ_prots[targ_prot] & new$patient == pats[pat] & new$timepoint2,]$spectral_count / 
+               new[new$protein == targ_prots[targ_prot] & new$patient == pats[pat] & new$timepoint1,]$spectral_count)))
+    dubs21 <- xfold_2_1 >= 2
+    dubs21[is.na(dubs21)] <- FALSE
+    targ_prots[apply(dubs21, 1, sum) >= 3]
+    write.csv(cbind(gsub(x = targ_prots[apply(dubs21, 1, sum) >= 3], pattern = ",", replacement = ""), xfold_2_1[apply(dubs21, 1, sum) >= 3,]), 
+              file = paste0("doubling_3orMorePatients_tp1-2_", Sys.Date(), ".csv"))
+    halves21 <- xfold_2_1 <= 0.5
+    halves21[is.na(halves21)] <- FALSE
+    targ_prots[apply(halves21, 1, sum) >= 3]
+    write.csv(cbind(gsub(x = targ_prots[apply(halves21, 1, sum) >= 3], pattern = ",", replacement = ""), xfold_2_1[apply(halves21, 1, sum) >= 3,]), 
+              file = paste0("halving_3orMorePatients_tp1-2_", Sys.Date(), ".csv"))
+    
+    xfold_3_1 <- t(sapply(1:length(targ_prots), function(targ_prot)
+      sapply(1:length(pats), function(pat) new[new$protein == targ_prots[targ_prot] & new$patient == pats[pat] & new$timepoint3,]$spectral_count / 
+               new[new$protein == targ_prots[targ_prot] & new$patient == pats[pat] & new$timepoint1,]$spectral_count)))
+    
+    dubs31 <- xfold_3_1 >= 2
+    dubs31[is.na(dubs31)] <- FALSE
+    targ_prots[apply(dubs31, 1, sum) >= 3]
+    write.csv(cbind(gsub(x = targ_prots[apply(dubs31, 1, sum) >= 3], pattern = ",", replacement = ""), xfold_3_1[apply(dubs31, 1, sum) >= 3,]), 
+              file = paste0("doubling_3orMorePatients_tp1-3_", Sys.Date(), ".csv"))
+    halves31 <- xfold_3_1 <= 0.5
+    halves31[is.na(halves31)] <- FALSE
+    targ_prots[apply(halves31, 1, sum) >= 3]
+    write.csv(cbind(gsub(x = targ_prots[apply(halves31, 1, sum) >= 3], pattern = ",", replacement = ""), xfold_3_1[apply(halves31, 1, sum) >= 3,]), 
+              file = paste0("halving_3orMorePatients_tp1-3_", Sys.Date(), ".csv"))
+    
+    plot(new$daysRelativeToTransplant, new$spectral_count, type = "l")
+  }
+  if(thinDataDownForExploration){
+    patients <- as.character(unique(d$patient))
+    proteins <- as.character(unique(d$protein))
+    d_thin <- d[1,]
+    for(i in 1:length(patients)){
+      n_tps <- length(unique(d[d$patient == patients[i],]$timepoint))
+      for(j in 1:n_tps){ #timepoints
+        patient <- patients[i]
+        timepoint <- j
+        subData <- d[d$patient == patient & d$timepoint == timepoint,]
+        sd_zeros <- subData[subData$spectral_count == 0,]
+        sd_nonzeros <- subData[subData$spectral_count > 0,]
+        d_thin <- rbind(d_thin, sd_nonzeros[sample(1:nrow(sd_nonzeros), min_n_pos, replace = F),])
+      }
+    }
+    d_thin <- d_thin[-1,]
+    thin_prots_incl <- unique(d_thin$protein)
+    for(i in 1:length(patients)){
+      n_tps <- length(unique(d[d$patient == patients[i],]$timepoint))
+      for(j in 1:n_tps){ #timepoints
+        patient <- patients[i]
+        timepoint <- j
+        subData <- d[d$patient == patient & d$timepoint == timepoint,]
+        subData_thin <- d_thin[d_thin$patient == patient & d_thin$timepoint == timepoint,]
+        notHereYet <- setdiff(thin_prots_incl, unique(subData_thin$protein))
+        toAdd_inds <- sapply(1:length(notHereYet), function(prot) which(subData$protein == notHereYet[prot]))
+        d_thin <- rbind(d_thin, subData[toAdd_inds,])
+      }
+    }
+    d_thin$protein <- as.factor(as.character(d_thin$protein))
+    d_thin$protein_id <- coerce_index(d_thin$protein)
+    d_thin$patient <- as.factor(as.character(d_thin$patient))
+    d_thin$patient_id <- coerce_index(d_thin$patient)
+    
   }
 }
+
+
+# model has just intercept and one coefficient corresponding to an indicator variable signifying occurence of discrete rejection event
+# d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+#                   "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej")]
+# ds <- d_thin[c("spectral_count", "patient_id", "afterRejection")]
+# m1 <- map2stan(
+#   alist(
+#     spectral_count ~ dpois( lambda ),
+#     log(lambda) <- a + bR*afterRejection,
+#     a ~ dnorm(0,100),
+#     bR ~ dnorm(0,1)
+#   ) ,
+#   data= ds,
+#   iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = 4,
+#   start = list(a=0, bR=0)
+# )
+# save(file = paste0(dataSize, "/", "m1", dataSize), m1)
+# precis(m1)
+
+nChains <- 1
+
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+             "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+m2 <- map2stan(
+  alist(
+    spectral_count ~ dpois( lambda ),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id] + A0i[patient_id] + a1*afterRejection,
+    A0b ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,sigA0j),
+    A0i[patient_id] ~ dnorm(0,sigA0i),
+    c(sigA0j, sigA0i) ~ dcauchy(0,1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id] + A1i[patient_id],
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,sigA1j),
+    A1i[patient_id] ~ dnorm(0,sigA1i),
+    c(sigA1j, sigA1i) ~ dcauchy(0,1),
+    
+    bR0 <- bR0b + bR0j[protein_id] + bR0i[patient_id],
+    bR0j[protein_id] ~ dnorm(0,sigbR0j),
+    bR0i[patient_id] ~ dnorm(0,sigbR0i),
+    bR0b ~ dnorm(0,0.03),
+    c(sigbR0j, sigbR0i) ~ dcauchy(0,0.01),
+    
+    bR1 <- bR1b + bR1j[protein_id] + bR1i[patient_id],
+    bR1j[protein_id] ~ dnorm(0,sigbR1j),
+    bR1i[patient_id] ~ dnorm(0,sigbR1i),
+    bR1b ~ dnorm(0,0.03),
+    c(sigbR1j, sigbR1i) ~ dcauchy(0,0.01)
+    
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+save(file = paste0(dataSize, "/", "m2", dataSize), m2)
+
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+                  "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+m3 <- map2stan(
+  alist(
+    spectral_count ~ dgampois( lambda , phi),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id] + A0i[patient_id] + a1*afterRejection,
+    A0b ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,sigA0j),
+    A0i[patient_id] ~ dnorm(0,sigA0i),
+    c(sigA0j, sigA0i) ~ dcauchy(0,1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id] + A1i[patient_id],
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,sigA1j),
+    A1i[patient_id] ~ dnorm(0,sigA1i),
+    c(sigA1j, sigA1i) ~ dcauchy(0,1),
+    
+    bR0 <- bR0b + bR0j[protein_id] + bR0i[patient_id],
+    bR0j[protein_id] ~ dnorm(0,sigbR0j),
+    bR0i[patient_id] ~ dnorm(0,sigbR0i),
+    bR0b ~ dnorm(0,0.03),
+    c(sigbR0j, sigbR0i) ~ dcauchy(0,0.01),
+    
+    bR1 <- bR1b + bR1j[protein_id] + bR1i[patient_id],
+    bR1j[protein_id] ~ dnorm(0,sigbR1j),
+    bR1i[patient_id] ~ dnorm(0,sigbR1i),
+    bR1b ~ dnorm(0,0.03),
+    c(sigbR1j, sigbR1i) ~ dcauchy(0,0.01),
+    
+    phi ~ dexp(1)
+    
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains, init_r = 0.1
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+precis(m3)
+
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+                  "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+
+m4 <- map2stan(
+  alist(
+    spectral_count ~ dpois( lambda),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id] + A0i[patient_id] + a1*afterRejection,
+    A0b ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,sigA0j),
+    A0i[patient_id] ~ dnorm(0,sigA0i),
+    c(sigA0j, sigA0i) ~ dcauchy(0,1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id] + A1i[patient_id],
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,sigA1j),
+    A1i[patient_id] ~ dnorm(0,sigA1i),
+    c(sigA1j, sigA1i) ~ dcauchy(0,1),
+    
+    bR0 <- bR0b + bR0j[protein_id] + bR0i[patient_id],
+    bR0j[protein_id] ~ dnorm(0,sigbR0j),
+    bR0i[patient_id] ~ dnorm(0,sigbR0i),
+    bR0b ~ dnorm(0,0.03),
+    c(sigbR0j, sigbR0i) ~ dcauchy(0,0.01),
+    
+    bR1 <- bR1b + bR1j[protein_id] + bR1i[patient_id],
+    bR1j[protein_id] ~ dnorm(0,sigbR1j),
+    bR1i[patient_id] ~ dnorm(0,sigbR1i),
+    bR1b ~ dnorm(0,0.03),
+    c(sigbR1j, sigbR1i) ~ dcauchy(0,0.01)
+    
+
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains, init_r = 0.1
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+precis(m4)
+
+#d_sub[(d_sub$rejection == 0),]
+
+
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+                  "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+m5 <- map2stan(
+  alist(
+    spectral_count ~ dpois( lambda),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id] + A0i[patient_id] + a1*afterRejection + a_rej*rejection,
+    c(A0b,a_rej) ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,sigA0j),
+    A0i[patient_id] ~ dnorm(0,sigA0i),
+    c(sigA0j, sigA0i) ~ dcauchy(0,1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id] + A1i[patient_id],
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,sigA1j),
+    A1i[patient_id] ~ dnorm(0,sigA1i),
+    c(sigA1j, sigA1i) ~ dcauchy(0,1),
+    
+    bR0 <- bR0b + bR0j[protein_id] + bR0i[patient_id] + b_rej0*rejection,
+    bR0j[protein_id] ~ dnorm(0,sigbR0j),
+    bR0i[patient_id] ~ dnorm(0,sigbR0i),
+    c(bR0b, b_rej0) ~ dnorm(0,0.03),
+    c(sigbR0j, sigbR0i) ~ dcauchy(0,0.01),
+    
+    bR1 <- bR1b + bR1j[protein_id] + bR1i[patient_id],
+    bR1j[protein_id] ~ dnorm(0,sigbR1j),
+    bR1i[patient_id] ~ dnorm(0,sigbR1i),
+    bR1b ~ dnorm(0,0.03),
+    c(sigbR1j, sigbR1i) ~ dcauchy(0,0.01)
+    
+    
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains, init_r = 0.1
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+precis(m5)
+
+#d_sub[(d_sub$rejection == 0),]
