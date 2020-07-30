@@ -7,7 +7,7 @@ for(i in 1:1){ #hacky way of loading everything
   dataSizeIndex <- 1
   dataSize <- c("full", "default", "sparse", "defaultfixed")[dataSizeIndex]
   EDA <- F
-  removeP9 <- T
+  removeP9 <- F
   if(removeP9){
     dataSize <- paste0(dataSize, "_removeP9")
   }

@@ -1,4 +1,4 @@
-sampleIterations <- 25000; warmupIterations <- 25000; nChains <- 1
+sampleIterations <- 20000; warmupIterations <- 10000; nChains <- 1
 for(i in 1:1){ #hacky way of loading everything
   
   library(rethinking)
@@ -626,6 +626,9 @@ for(i in 1:1){ #hacky way of loading everything
   }
 }
 
+#use persistent thinned dataset
+# save(d_thin, file = "d_thin")
+load("d_thin")
 
 # model has just intercept and one coefficient corresponding to an indicator variable signifying occurence of discrete rejection event
 # d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
@@ -720,7 +723,7 @@ m3 <- map2stan(
     bR1b ~ dnorm(0,0.03),
     c(sigbR1j, sigbR1i) ~ dcauchy(0,0.01),
     
-    phi ~ dexp(1)
+    phi ~ dexp(0.5)
     
   ) ,
   data= d_sub,
@@ -773,7 +776,7 @@ precis(m4)
 
 #d_sub[(d_sub$rejection == 0),]
 
-
+## m5 utterly failed to sample
 d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
 d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
 d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
@@ -815,4 +818,147 @@ m5 <- map2stan(
 )
 precis(m5)
 
-#d_sub[(d_sub$rejection == 0),]
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+                  "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+m6 <- map2stan(
+  alist(
+    spectral_count ~ dgampois( lambda , phi),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id] + A0i[patient_id] + a1*afterRejection + a_rej,
+    c(a_rej, A0b) ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,sigA0j),
+    A0i[patient_id] ~ dnorm(0,sigA0i),
+    c(sigA0j, sigA0i) ~ dcauchy(0,1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id] + A1i[patient_id],
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,sigA1j),
+    A1i[patient_id] ~ dnorm(0,sigA1i),
+    c(sigA1j, sigA1i) ~ dcauchy(0,1),
+    
+    bR0 <- bR0b + bR0j[protein_id] + bR0i[patient_id] + b_rej,
+    bR0j[protein_id] ~ dnorm(0,sigbR0j),
+    bR0i[patient_id] ~ dnorm(0,sigbR0i),
+    c(bR0b, b_rej) ~ dnorm(0,0.03),
+    c(sigbR0j, sigbR0i) ~ dcauchy(0,0.01),
+    
+    bR1 <- bR1b + bR1j[protein_id] + bR1i[patient_id],
+    bR1j[protein_id] ~ dnorm(0,sigbR1j),
+    bR1i[patient_id] ~ dnorm(0,sigbR1i),
+    bR1b ~ dnorm(0,0.03),
+    c(sigbR1j, sigbR1i) ~ dcauchy(0,0.01),
+    
+    phi ~ dexp(0.5)
+    
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains, init_r = 0.1
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+save(x = m6, file = "m6_centered")
+precis(m6)
+
+#let's try reparameterizing m6 to see if it improves sampling
+#i.e. pull the mean and scale parameters out, so e.g.
+# vector[K] beta
+#beta ~ normal(mu_beta, sigma_beta)
+#mu_beta ~ normal(0,4)
+#sigma_beta ~ exponential(1)
+## becomes ##
+# vector[K] beta
+#beta = mu_beta + sigma_beta * beta_raw;
+#beta_raw ~ std_normal();
+#mu_beta ~ normal(0,4)
+#sigma_beta ~ exponential(1)
+
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+                  "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+
+m7 <- map2stan(
+  alist(
+    spectral_count ~ dpois( lambda ),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id] + A0i[patient_id] + a1*afterRejection + a_rej,
+    c(a_rej, A0b) ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,sigA0j),
+    A0i[patient_id] ~ dnorm(0,sigA0i),
+    c(sigA0j, sigA0i) ~ dexp(1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id] + A1i[patient_id],
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,sigA1j),
+    A1i[patient_id] ~ dnorm(0,sigA1i),
+    c(sigA1j, sigA1i) ~ dexp(1),
+    
+    bR0 <- (bR0b + bR0j[protein_id] + bR0i[patient_id] + b_rej) * 0.03,
+    bR0j[protein_id] ~ dnorm(0,sigbR0j),
+    bR0i[patient_id] ~ dnorm(0,sigbR0i),
+    c(bR0b, b_rej) ~ dnorm(0,1),
+    c(sigbR0j, sigbR0i) ~ dexp(1),
+    
+    bR1 <- (bR1b + bR1j[protein_id] + bR1i[patient_id]) * 0.03,
+    bR1j[protein_id] ~ dnorm(0,sigbR1j),
+    bR1i[patient_id] ~ dnorm(0,sigbR1i),
+    bR1b ~ dnorm(0,1),
+    c(sigbR1j, sigbR1i) ~ dexp(1)
+    
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains, init_r = 0.1
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+precis(m7)
+
+#further reparameterizatiton
+
+d_thin$daysBetwTrans_Rej[d_thin$rejection == 0] <- 1
+d_thin$daysRelativeToRejection[d_thin$rejection == 0] <- 1
+d_sub <- d_thin[c("spectral_count", "daysRelativeToTransplant", "afterRejection", "afterTransplant", 
+                  "daysRelativeToRejection", "protein_id", "patient_id", "daysBetwTrans_Rej", "rejection")]
+m8 <- ulam(
+  alist(
+    spectral_count ~ dgampois( lambda , phi),
+    log(lambda) <- a0 + bR0*daysRelativeToTransplant*(1-afterRejection)*afterTransplant + bR1*daysRelativeToRejection*afterRejection, 
+    
+    a0 <- A0b + A0j[protein_id]*sigA0j + A0i[patient_id]*sigA0i + a1*afterRejection + a_rej,
+    c(a_rej, A0b) ~ dnorm(0,4),
+    A0j[protein_id] ~ dnorm(0,1),
+    A0i[patient_id] ~ dnorm(0,1),
+    c(sigA0j, sigA0i) ~ dhalfnorm(0,1),
+    
+    a1 <- bR0*daysBetwTrans_Rej + A1b + A1j[protein_id]*sigA1j + A1i[patient_id]*sigA1i,
+    A1b ~ dnorm(0,4),
+    A1j[protein_id] ~ dnorm(0,1),
+    A1i[patient_id] ~ dnorm(0,1),
+    c(sigA1j, sigA1i) ~ dhalfnorm(0,1),
+    
+    bR0 <- (bR0b*2 + bR0j[protein_id]*sigbR0j + bR0i[patient_id]*sigbR0i + b_rej*2)*0.03,
+    bR0j[protein_id] ~ dnorm(0,1),
+    bR0i[patient_id] ~ dnorm(0,1),
+    c(bR0b, b_rej) ~ dnorm(0,1),
+    c(sigbR0j, sigbR0i) ~ dhalfnorm(0,1),
+    
+    bR1 <- (bR1b*2 + bR1j[protein_id]*sigbR1j + bR1i[patient_id]*sigbR1i)*0.03,
+    bR1j[protein_id] ~ dnorm(0,1),
+    bR1i[patient_id] ~ dnorm(0,1),
+    bR1b ~ dnorm(0,1),
+    c(sigbR1j, sigbR1i) ~ dhalfnorm(0,1),
+    
+    phi ~ dexp(0.5)
+    
+  ) ,
+  data= d_sub,
+  iter = sampleIterations, warmup = warmupIterations, chains = nChains, cores = nChains, init_r = 0.1, control = list(adapt_delta=0.98)
+  # ,start = list(sigbR0j=0.01, sigbR0i=0.01, bR0b=0, sigbR1j=0.01, sigbR1i=0.01, bR1b=0, A0b=0, sigA0j=1, sigA0i=1, A1b=0, sigA1j=1, sigA1i=1)
+)
+save(m8, file = "m8_noncentered")
+m8s <- extract.samples(m8)
+coeftab(m8)
+precis(m8)
+
